@@ -1,0 +1,88 @@
+# ============================================================
+# docker-compose.yml — Sistema de Gestión Académica
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # PostgreSQL - Base de Datos
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: gestion_academica_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-gestion_academica}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-gestion_academica}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - gestion_academica_net
+
+  # ----------------------------------------------------------
+  # Backend — NestJS
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gestion_academica_backend
+    restart: unless-stopped
+    environment:
+      # Usamos el nombre del servicio "postgres" en lugar de localhost
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-gestion_academica}?schema=public
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-development}
+      JWT_SECRET: ${JWT_SECRET:-super_secret_key_123}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/usr/src/app
+      - /usr/src/app/node_modules # Evita que los módulos locales sobrescriban los del contenedor
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - gestion_academica_net
+
+  # ----------------------------------------------------------
+  # Frontend — Next.js
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gestion_academica_frontend
+    restart: unless-stopped
+    environment:
+      # Importante: localhost es correcto aquí porque el navegador del cliente accede así
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+      NODE_ENV: ${NODE_ENV:-development}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/usr/src/app
+      - /usr/src/app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - gestion_academica_net
+
+# ----------------------------------------------------------
+# Volúmenes y redes
+# ----------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  gestion_academica_net:
+    driver: bridge
